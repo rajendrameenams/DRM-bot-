@@ -14,10 +14,14 @@ class TgHandler:
     @staticmethod
     async def error_message(bot: AFK, m: Message, error: str):
         LOGS.error(error)
-        await bot.send_message(
-            chat_id= Config.LOG_CH,
-            text= f"<b>Error:</b> `{error}`"
-        )
+        if Config.LOG_CH:
+            try:
+                await bot.send_message(
+                    chat_id=Config.LOG_CH,
+                    text=f"<b>Error:</b> `{error}`"
+                )
+            except Exception as e:
+                LOGS.warning(f"Failed to send error to LOG_CH: {e}")
     
     async def linkMsg2(self, List):
         a = ""
@@ -31,18 +35,18 @@ class TgHandler:
                     )
                     a = ""
                 a += data
-            await self.bot.send_message(
-                chat_id=self.m.chat.id,
-                text=f'**Failed files are ({len(List)}) :-\n\n{a}',
-                disable_web_page_preview=True,
-            )
+            if a:
+                await self.bot.send_message(
+                    chat_id=self.m.chat.id,
+                    text=f'**Failed files are ({len(List)}) :-\n\n{a}',
+                    disable_web_page_preview=True,
+                )
             List.clear()
-        except:
+        except Exception:
             await self.m.reply_text("Done")
             List.clear()
             
     async def downloadMedia(self, msg):
-        # sPath = f"{self.path}/FILE/{self.m.chat.id}"
         sPath = f"{Config.DOWNLOAD_LOCATION}/FILE/{self.m.chat.id}"
         os.makedirs(sPath, exist_ok=True)
         file = await self.bot.download_media(
@@ -53,23 +57,25 @@ class TgHandler:
 
     async def readTxt(self, x):
         try:
-            with open(x, "r") as f:
+            with open(x, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
             content = content.split("\n")
-            name_links = [i.split(":", 1) for i in content if i != '']
-            os.remove(x)
+            name_links = [i.split(":", 1) for i in content if i.strip() != '' and ":" in i]
+            if os.path.exists(x):
+                os.remove(x)
             print(len(name_links))
             return name_links
         except Exception as e:
             LOGS.error(e)
             await self.m.reply_text("**Invalid file Input.**")
-            os.remove(x)
-            return
+            if os.path.exists(x):
+                os.remove(x)
+            return []
 
     @staticmethod
     def parse_name(rawName):
         name = (
-            rawName.replace("/", "_")
+            str(rawName).replace("/", "_")
             .replace("|", "_")
             .replace(":", "-")
             .replace("*", "")
@@ -97,104 +103,117 @@ class TgHandler:
     def user_(self):
         try:
             if self.m.from_user is None:
-                user = self.m.chat.title
+                user = self.m.chat.title or "User"
             else:
-                # f"[{self.m.from_user.first_name}](tg://user?id={self.m.from_user.id})"
                 user = self.m.from_user.first_name
             return user
         except Exception as e:
             print(e)
-            user = "Group Admin"
+            user = "User"
             return user
 
     @staticmethod
     def index_(index: int):
-        if int(index) == 0:
+        if int(index) <= 0:
             num = 0
         else:
-            num = int(index)-1
+            num = int(index) - 1
         return num
 
     @staticmethod
     def resolution_(resolution: str):
-        if resolution not in ['144', '180', '240', '360', '480', '720', '1080']:
+        res = str(resolution).strip()
+        if res not in ['144', '180', '240', '360', '480', '720', '1080']:
             quality = '360'
         else:
-            quality = resolution
+            quality = res
         return quality
 
 
 class TgClient(TgHandler):
     async def Ask_user(self):
         userr = TgClient.user_(self)
-        msg1 = await self.bot.send_message(
+        await self.bot.send_message(
             self.m.chat.id,
             text=Msg.TXT_MSG.format(
-                user=TgClient.user_(self)
+                user=userr
             )
         )
         inputFile = await self.bot.listen(self.m.chat.id)
-        if inputFile.document:
+        if inputFile and inputFile.document:
             if inputFile.document.mime_type not in ["text/plain", "text/html"]:
-                return
+                await self.m.reply_text("Please provide a valid .txt or .html file.")
+                return None
             else:
-                txt_name = inputFile.document.file_name.replace("_", " ")
+                txt_name = (inputFile.document.file_name or "file").replace("_", " ")
                 x = await TgClient.downloadMedia(
                     self,
                     inputFile
                 )
-                await inputFile.delete(True)
+                try:
+                    await inputFile.delete(True)
+                except Exception:
+                    pass
 
             if inputFile.document.mime_type == "text/plain":
                 nameLinks = await TgClient.readTxt(self, x)
                 try:
                     Token = inputFile.caption
-                except:
+                except Exception:
                     Token = None
 
             elif inputFile.document.mime_type == "text/html":
                 nameLinks = parse_html(x)
                 Token = None
-                os.remove(x)
+                if os.path.exists(x):
+                    os.remove(x)
 
-            msg2 = await self.bot.send_message(
+            if not nameLinks:
+                await self.m.reply_text("No valid links found in the provided file.")
+                return None
+
+            await self.bot.send_message(
                 self.m.chat.id,
                 text=Msg.CMD_MSG_1.format(
                     txt=txt_name, no_of_links=len(nameLinks))
             )
             user_index = await self.bot.listen(self.m.chat.id)
-            index = int(user_index.text)
+            try:
+                index = int(user_index.text.strip())
+            except Exception:
+                index = 1
             num = TgClient.index_(index=index)
 
-            msg3 = await self.bot.send_message(
+            await self.bot.send_message(
                 self.m.chat.id,
                 text="**Send Caption :-**"
             )
             user_caption = await self.bot.listen(self.m.chat.id)
-            caption = user_caption.text
-            # caption = None
+            caption = user_caption.text or ""
 
-            msg4 = await self.bot.send_message(
+            await self.bot.send_message(
                 self.m.chat.id,
                 text="**Send Quality (Default is 360) :-**"
             )
             user_quality = await self.bot.listen(self.m.chat.id)
-            resolution = user_quality.text
+            resolution = user_quality.text or "360"
             quality = TgClient.resolution_(resolution=resolution)
 
             return nameLinks, num, caption, quality, Token, txt_name, userr
         else:
-            return
+            await self.m.reply_text("No document received.")
+            return None
 
     async def thumb(self):
         t = await self.bot.ask(
             self.m.chat.id,
-            "**Send Thumb JPEG/PNG or Telegraph LinK  or No :-**"
+            "**Send Thumb JPEG/PNG or Telegraph Link or type 'no' :-**"
         )
-        if t.text:
-            thumb = t.text
-        elif t.photo:
+        thumb = "no"
+        if t and t.text:
+            thumb = t.text.strip()
+        elif t and t.photo:
             thumb = await TgClient.downloadMedia(self, t)
         else:
-            thumb == "no"
+            thumb = "no"
         return thumb

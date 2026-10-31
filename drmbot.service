@@ -1,0 +1,19 @@
+[Unit]
+Description=Telegram DRM Bot Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+# Change this path to your bot's folder location on your VPS
+WorkingDirectory=/root/DRM-bot-
+# If using virtual environment:
+ExecStart=/root/DRM-bot-/venv/bin/python3 main.py
+# If using system python:
+# ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,5 +1,5 @@
 from pyrogram import filters, Client as AFK
-from main import LOGGER as LOGS, prefixes, Config, Msg
+from main import LOGGER as LOGS, prefixes, Config, Msg, AUTH_FILTER
 from pyrogram.types import Message
 from handlers.tg import TgClient, TgHandler
 import os
@@ -11,8 +11,7 @@ from handlers.uploader import Upload_to_Tg
 
 
 @AFK.on_message(
-    (filters.chat(Config.GROUPS) | filters.chat(Config.AUTH_USERS)) &
-    filters.incoming & filters.command("start", prefixes=prefixes)
+    AUTH_FILTER & filters.incoming & filters.command("start", prefixes=prefixes)
 )
 async def start_msg(bot: AFK, m: Message):
     await bot.send_message(
@@ -22,28 +21,30 @@ async def start_msg(bot: AFK, m: Message):
 
 
 @AFK.on_message(
-    (filters.chat(Config.GROUPS) | filters.chat(Config.AUTH_USERS)) &
-    filters.incoming & filters.command("restart", prefixes=prefixes)
+    AUTH_FILTER & filters.incoming & filters.command("restart", prefixes=prefixes)
 )
-async def restart_handler(_, m):
-    shutil.rmtree(Config.DOWNLOAD_LOCATION)
-    await m.reply_text(Msg.RESTART_MSG, True)
+async def restart_handler(_, m: Message):
+    if os.path.exists(Config.DOWNLOAD_LOCATION):
+        shutil.rmtree(Config.DOWNLOAD_LOCATION, ignore_errors=True)
+    os.makedirs(Config.DOWNLOAD_LOCATION, exist_ok=True)
+    await m.reply_text(Msg.RESTART_MSG, quote=True)
     os.execl(sys.executable, sys.executable, *sys.argv)
-
-error_list = []
 
 
 @AFK.on_message(
-    (filters.chat(Config.GROUPS) | filters.chat(Config.AUTH_USERS)) &
-    filters.incoming & filters.command("pro", prefixes=prefixes)
+    AUTH_FILTER & filters.incoming & filters.command("pro", prefixes=prefixes)
 )
 async def Pro(bot: AFK, m: Message):
+    error_list = []
     sPath = f"{Config.DOWNLOAD_LOCATION}/{m.chat.id}"
-    tPath =  f"{Config.DOWNLOAD_LOCATION}/FILE/{m.chat.id}"#f"{Config.DOWNLOAD_LOCATION}/FILE/{m.chat.id}"
+    tPath = f"{Config.DOWNLOAD_LOCATION}/FILE/{m.chat.id}"
     os.makedirs(sPath, exist_ok=True)
     BOT = TgClient(bot, m, sPath)
     try:
-        nameLinks, num, caption, quality, Token, txt_name, userr = await BOT.Ask_user()
+        user_res = await BOT.Ask_user()
+        if not user_res:
+            return
+        nameLinks, num, caption, quality, Token, txt_name, userr = user_res
         Thumb = await BOT.thumb()
     except Exception as e:
         LOGS.error(str(e))
@@ -52,6 +53,9 @@ async def Pro(bot: AFK, m: Message):
         return
 
     for i in range(num, len(nameLinks)):
+        caption_name = ""
+        url = ""
+        Show = None
         try:
             name = BOT.parse_name(nameLinks[i][0])
             link = nameLinks[i][1]
@@ -74,7 +78,7 @@ async def Pro(bot: AFK, m: Message):
                                   path=sPath, Token=Token, Quality=quality)
             dl_file = await DL.start_download()
 
-            if os.path.isfile(dl_file) is not None:
+            if dl_file and os.path.isfile(dl_file):
                 if dl_file.endswith(".mp4"):
                     cap = f"{caption_name}.mp4\n\n<b>𝗕𝗮𝘁𝗰𝗵 𝗡𝗮𝗺𝗲 : </b>{caption}\n\n<b>𝗘𝘅𝘁𝗿𝗮𝗰𝘁𝗲𝗱 𝗯𝘆 ➤ </b> **{userr}**"
                     UL = Upload_to_Tg(bot=bot, m=m, file_path=dl_file, name=caption_name,
@@ -87,43 +91,57 @@ async def Pro(bot: AFK, m: Message):
                                       Thumb=Thumb, path=sPath, show_msg=Show, caption=cap)
                     await UL.upload_doc()
             else:
-                await Show.delete(True)
-                await bot.send_message(
-                    chat_id=Config.LOG_CH,
-                    text=Msg.ERROR_MSG.format(
-                        error=None,
-                        no_of_files=len(error_list),
-                        file_name=caption_name,
-                        file_link=url,
-                    )
-                )
+                if Show:
+                    try:
+                        await Show.delete(True)
+                    except Exception:
+                        pass
+                if Config.LOG_CH:
+                    try:
+                        await bot.send_message(
+                            chat_id=Config.LOG_CH,
+                            text=Msg.ERROR_MSG.format(
+                                error="File download returned empty path or failed",
+                                no_of_files=len(error_list),
+                                file_name=caption_name,
+                                file_link=url,
+                            )
+                        )
+                    except Exception as err:
+                        LOGS.error(f"Failed to log to LOG_CH: {err}")
         except Exception as r:
             LOGS.error(str(r))
             error_list.append(f"{caption_name}\n")
-            try:
-                await Show.delete(True)
-            except:
-                pass
-            await bot.send_message(
-                chat_id=Config.LOG_CH,
-                text=Msg.ERROR_MSG.format(
-                    error=str(r),
-                    no_of_files=len(error_list),
-                    file_name=caption_name,
-                    file_link=url,
-                )
-            )
+            if Show:
+                try:
+                    await Show.delete(True)
+                except Exception:
+                    pass
+            if Config.LOG_CH:
+                try:
+                    await bot.send_message(
+                        chat_id=Config.LOG_CH,
+                        text=Msg.ERROR_MSG.format(
+                            error=str(r),
+                            no_of_files=len(error_list),
+                            file_name=caption_name,
+                            file_link=url,
+                        )
+                    )
+                except Exception as err:
+                    LOGS.error(f"Failed to log to LOG_CH: {err}")
             continue
 
-    shutil.rmtree(sPath)
-    try:
-        if os.path.exists(tPath):
-            if os.path.isfile(tPath):
+    if os.path.exists(sPath):
+        shutil.rmtree(sPath, ignore_errors=True)
+    if os.path.exists(tPath):
+        if os.path.isfile(tPath):
+            try:
                 os.remove(tPath)
-    except Exception as e1:
-        LOGS.error(str(e1))
-        shutil.rmtree(tPath)
-        pass
+            except Exception:
+                pass
+        else:
+            shutil.rmtree(tPath, ignore_errors=True)
 
     await BOT.linkMsg2(error_list)
     await m.reply_text("Done")

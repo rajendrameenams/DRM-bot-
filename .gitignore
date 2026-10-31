@@ -1,0 +1,25 @@
+# Environment variables
+.env
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pyrogram session files
+*.session
+*.session-journal
+SESSIONS/
+
+# Downloads & temp files
+DOWNLOADS/
+cooks.txt
+*.mp4
+*.m4a
+*.pdf
+*.jpg
+
+# Virtual environment
+venv/
+env/
+ENV/

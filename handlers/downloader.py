@@ -1,4 +1,3 @@
-import ctypes
 import subprocess
 from subprocess import getoutput
 from handlers.url_scripts import ParseLink
@@ -8,14 +7,12 @@ import requests
 import aiohttp
 import aiofiles
 import os
-from handlers.tg import TgHandler
 
 cc = 0
 
 EXTRA_LINKS = {
     "CP_VIMEO_TYPE": ("https://videos.classplusapp.com/", "https://api.edukemy.com/videodetails/", "https://tencdn.classplusapp.com", "https://covod.testbook.com/"),
     "GUIDELY_LINK": ("https://guidely.prepdesk.in/api/", "https://ibpsguide.prepdesk.in/api/"),
-    # "http://104.199.144.5:1935/vod/",
     "SET3": ("https://ply-404.herokuapp.com/"),
     "EDU_PDF": ("https://edukemy-v2-assets.s3.ap-south-1.amazonaws.com/course_content/"),
     "VISION_PDF": ("http://www.visionias.in/student/pt/video_student/handout", "http://www.visionias.in/student/3.php?"),
@@ -27,8 +24,12 @@ class get_link_atributes:
     @staticmethod
     def get_wxh(ytdlp):
         try:
-            widthXheight = str(
-                getoutput(f"{ytdlp}  -e --get-filename -R 25")).split("\n")[1].strip()
+            output = getoutput(f"{ytdlp} -e --get-filename -R 25")
+            lines = str(output).split("\n")
+            if len(lines) > 1:
+                widthXheight = lines[1].strip()
+            else:
+                widthXheight = lines[0].strip() if lines else ".N.A"
             LOGS.info(widthXheight)
             return widthXheight
         except Exception as e1:
@@ -48,6 +49,11 @@ class get_link_atributes:
                 cook = "cooks.txt"
                 YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{url}" --cookies "{cook}" -o "%(resolution)s"'
                 wXh = get_link_atributes().get_wxh(YTDLP)
+                if os.path.exists(cook):
+                    try:
+                        os.remove(cook)
+                    except Exception:
+                        pass
                 return wXh
             elif "youtu" in url:
                 YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{url}" --progress -o "%(resolution)s"'
@@ -70,10 +76,7 @@ class get_link_atributes:
         elif link.startswith(("https://vod.visionias.in/player/index.php", "https://vod.visionias.in/player_v2/index.php")):
             url = ParseLink.vision_m3u8_link(link, Q)
             return url
-        elif link.startswith(("https://covod.testbook.com/")):
-            url = ParseLink.classplus_link(link=link)
-            return url
-        elif link.startswith(("https://tencdn.classplusapp.com")):
+        elif link.startswith(("https://covod.testbook.com/", "https://tencdn.classplusapp.com")):
             url = ParseLink.classplus_link(link=link)
             return url
         elif link.startswith("http://www.visionias.in/student/videoplayer_v2/?"):
@@ -82,20 +85,21 @@ class get_link_atributes:
         elif link.startswith("https://d1d34p8vz63oiq.cloudfront.net/"):
             url = ParseLink.is_pw(link)
             return url
-        elif link.startswith("https://d1d34p8vz63oiq.cloudfront.net/"):
-            url = ParseLink.is_pw(link)
-            return url
         elif "drive" in link:
             url = ParseLink.is_drive_pdf(url=link)
             return url
         elif link.startswith("https://videotest.adda247.com/"):
-            if link.split("/")[3] != "demo":
-                url = f'https://videotest.adda247.com/demo/{link.split("https://videotest.adda247.com/")[1]}'
+            parts = link.split("https://videotest.adda247.com/")
+            if len(parts) > 1 and not link.startswith("https://videotest.adda247.com/demo/"):
+                url = f'https://videotest.adda247.com/demo/{parts[1]}'
                 return url
             else:
                 return link
         elif not link.startswith("http"):
-            url = ParseLink.cw_url2(link.split("*")[0]) + link.split("*")[1]
+            if "*" in link:
+                url = ParseLink.cw_url2(link.split("*")[0]) + link.split("*")[1]
+            else:
+                url = link
             print(url)
             return url
         else:
@@ -113,15 +117,23 @@ class Download_Methods:
         self.temp_dir = f"{path}/{name}"
 
     async def m3u82mp4(self, file):
+        if not file or not os.path.exists(file):
+            return None
+        out_file = f"{self.temp_dir}.mp4"
         subprocess.run(
             [
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
-                "-i", file, "-c", "copy", "-bsf:a", "aac_adtstoasc", f"{self.temp_dir}.mp4"
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+                "-i", file, "-c", "copy", "-bsf:a", "aac_adtstoasc", out_file
             ]
         )
-        os.remove(file)
-        if os.path.isfile(f"{self.temp_dir}.mp4"):
-            return f"{self.temp_dir}.mp4"
+        if os.path.exists(file):
+            try:
+                os.remove(file)
+            except Exception:
+                pass
+        if os.path.isfile(out_file):
+            return out_file
+        return None
 
     def addapdf(self):
         cookies = {
@@ -141,18 +153,18 @@ class Download_Methods:
         response = requests.get(
             f'{self.url}', cookies=cookies, headers=headers)
 
-        with open(f'{self.temp_dir}.pdf', 'wb') as f:
+        out_file = f'{self.temp_dir}.pdf'
+        with open(out_file, 'wb') as f:
             f.write(response.content)
-        return f'{self.temp_dir}.pdf'
+        return out_file
 
     async def aio(self):
         k = f"{self.temp_dir}.pdf"
         async with aiohttp.ClientSession() as session:
             async with session.get(self.url) as resp:
                 if resp.status == 200:
-                    f = await aiofiles.open(k, mode='wb')
-                    await f.write(await resp.read())
-                    await f.close()
+                    async with aiofiles.open(k, mode='wb') as f:
+                        await f.write(await resp.read())
         return k
 
     def cwpdf(self):
@@ -160,14 +172,14 @@ class Download_Methods:
             'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 9; Redmi Note 5 Pro MIUI/V11.0.5.0.PEIMIXM)',
             'Host': 'elearn.crwilladmin.com',
             'Connection': 'Keep-Alive',
-            # 'Accept-Encoding': 'gzip',
         }
         r_pdf = requests.get(self.url, headers=headers)
-        with open(f'{self.temp_dir}.pdf', 'wb') as f:
+        out_file = f'{self.temp_dir}.pdf'
+        with open(out_file, 'wb') as f:
             f.write(r_pdf.content)
-        pdf = f'{self.temp_dir}.pdf'
-        if os.path.isfile(pdf):
-            return pdf
+        if os.path.isfile(out_file):
+            return out_file
+        return None
 
     def visionpdf(self):
         cookies = {
@@ -182,60 +194,84 @@ class Download_Methods:
         }
         response = requests.get(self.url, cookies=cookies,
                                 headers=headers, verify=False)
-        print(response)
-        with open(f"{self.temp_dir}.pdf", "wb") as f:
+        out_file = f"{self.temp_dir}.pdf"
+        with open(out_file, "wb") as f:
             f.write(response.content)
-        if os.path.isfile(f"{self.temp_dir}.pdf"):
-            return f"{self.temp_dir}.pdf"
+        if os.path.isfile(out_file):
+            return out_file
+        return None
 
     async def Guidely(self):
-        z = requests.get(self.url).json()['item']['data']['key']
-        mpd = requests.get(self.url).json()['item']['data']['file']
-        print(z, mpd)
+        try:
+            res = requests.get(self.url).json()
+            z = res['item']['data']['key']
+            mpd = res['item']['data']['file']
+        except Exception as e:
+            LOGS.error(f"Guidely parsing failed: {e}")
+            return None
+
         cmd1 = f'yt-dlp -o "{self.path}/Name.%(ext)s" -f "bestvideo[height<={self.Q}]+bestaudio" --allow-unplayable-format --external-downloader aria2c "{mpd}"'
         os.system(cmd1)
-        AV = os.listdir(self.path)
-        print(AV)
+        AV = os.listdir(self.path) if os.path.exists(self.path) else []
         for d in AV:
-            if d.endswith("mp4"):
-                cmd2 = f'mp4decrypt --key 1:{z} {self.path}/{d} "{self.path}/video.mp4"'
+            if d.endswith("mp4") and d != "video.mp4":
+                cmd2 = f'mp4decrypt --key 1:{z} "{self.path}/{d}" "{self.path}/video.mp4"'
                 os.system(cmd2)
-                os.remove(f"{self.path}/{d}")
-            elif d.endswith("m4a"):
-                cmd3 = f'mp4decrypt --key 1:{z} {self.path}/{d} "{self.path}/audio.m4a"'
+                if os.path.exists(f"{self.path}/{d}"):
+                    try:
+                        os.remove(f"{self.path}/{d}")
+                    except Exception:
+                        pass
+            elif d.endswith("m4a") and d != "audio.m4a":
+                cmd3 = f'mp4decrypt --key 1:{z} "{self.path}/{d}" "{self.path}/audio.m4a"'
                 os.system(cmd3)
-                os.remove(f"{self.path}/{d}")
-        cmd4 = f'ffmpeg -i "{self.path}/video.mp4" -i "{self.path}/audio.m4a" -c copy "{self.temp_dir}.mp4"'
+                if os.path.exists(f"{self.path}/{d}"):
+                    try:
+                        os.remove(f"{self.path}/{d}")
+                    except Exception:
+                        pass
+        cmd4 = f'ffmpeg -y -i "{self.path}/video.mp4" -i "{self.path}/audio.m4a" -c copy "{self.temp_dir}.mp4"'
         os.system(cmd4)
-        os.remove(f"{self.path}/video.mp4")
-        os.remove(f"{self.path}/audio.m4a")
-        if os.path.isfile(f"{self.temp_dir}.mp4"):
-            file_name = f"{self.temp_dir}.mp4"
-            return file_name
+        if os.path.exists(f"{self.path}/video.mp4"):
+            try:
+                os.remove(f"{self.path}/video.mp4")
+            except Exception:
+                pass
+        if os.path.exists(f"{self.path}/audio.m4a"):
+            try:
+                os.remove(f"{self.path}/audio.m4a")
+            except Exception:
+                pass
+        out_file = f"{self.temp_dir}.mp4"
+        if os.path.isfile(out_file):
+            return out_file
+        return None
 
     def get_drive_link_type(self):
         try:
-            c_type = requests.get(self.url).headers['Content-Type'].lower()
+            resp = requests.get(self.url, stream=True)
+            c_type = resp.headers.get('Content-Type', '').lower()
             return c_type
         except Exception as e2:
             LOGS.error(str(e2))
-            c_type = None
-            return c_type
+            return ""
 
     def dot_ws_link(self):
         response = requests.get(self.url, stream=True)
         LOGS.info(response.status_code)
-        with open(f"{self.temp_dir}.html", "wb") as f:
+        out_file = f"{self.temp_dir}.html"
+        with open(out_file, "wb") as f:
             f.write(response.content)
-        if os.path.isfile(f"{self.temp_dir}.html"):
-            return f"{self.temp_dir}.html"
+        if os.path.isfile(out_file):
+            return out_file
+        return None
 
 
 class download_handler(Download_Methods):
     def run_cmd(self, cmd):
         LOGS.info(cmd)
         try:
-            dl = subprocess.run(cmd, shell=True)
+            subprocess.run(cmd, shell=True)
         except Exception as e_:
             LOGS.info(str(e_))
         file_path = f"{self.temp_dir}.mp4"
@@ -245,11 +281,11 @@ class download_handler(Download_Methods):
         LOGS.info(cmd)
         global cc
         if cc >= 5:
-            return
+            return None
         dl = subprocess.run(cmd, shell=True)
         if dl.returncode != 0:
             cc += 1
-            download_handler.recursive(self, cmd=cmd)
+            return download_handler.recursive(self, cmd=cmd)
         cc = 0
         file_path = f"{self.temp_dir}.mp4"
         LOGS.info(str(file_path))
@@ -259,26 +295,16 @@ class download_handler(Download_Methods):
         LOGS.info(cmd)
         global cc
         if cc >= 5:
-            return
-        # Create subprocess
+            return None
         process = await asyncio.create_subprocess_shell(
             cmd=cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        # status
         print("Started:", cmd, "(pid = " + str(process.pid) + ")", flush=True)
-        # Wait for the subprocess to finish
         stdout, stderr = await process.communicate()
         if process.returncode != 0:
             cc += 1
-            await download_handler.recursive_asyno(self, cmd=cmd)
+            return await download_handler.recursive_asyno(self, cmd=cmd)
         cc = 0
-        # Progress
-        if process.returncode == 0:
-            print("Done:", cmd, "(pid = " + str(process.pid) + ")", flush=True)
-        else:
-            print(
-                "Failed:", cmd, "(pid = " + str(process.pid) + ")", flush=True
-            )
         file_path = f"{self.temp_dir}.mp4"
         LOGS.info(str(file_path))
         return file_path
@@ -287,7 +313,6 @@ class download_handler(Download_Methods):
         YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
         YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
         CMD = f"{YTDLP} -R 25 --fragment-retries 25 --external-downloader aria2c --downloader-args 'aria2c: -x 16 -j 32'"
-        # dl = subprocess.run(download_cmd, shell=True)
 
         if self.url.startswith('https://elearn.crwilladmin.com/') and self.url.endswith('.pdf'):
             file_name = download_handler.cwpdf(self)
@@ -314,10 +339,10 @@ class download_handler(Download_Methods):
             return file_name
         if "drive" in self.url:
             c_type = download_handler.get_drive_link_type(self)
-            if "pdf" in c_type:
+            if c_type and "pdf" in c_type:
                 file_name = await download_handler.aio(self)
                 return file_name
-            if "video" in c_type:
+            elif c_type and "video" in c_type:
                 file_name = await download_handler.recursive_asyno(self, cmd=CMD)
                 return file_name
             else:
@@ -333,7 +358,11 @@ class download_handler(Download_Methods):
                 YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{m3u8url}" --cookies "{cook}" --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
                 CMD = f"{YTDLP} -R 25 --fragment-retries 25 --external-downloader aria2c --downloader-args 'aria2c: -x 16 -j 32'"
                 file_name = await download_handler.recursive_asyno(self, cmd=CMD)
-                os.remove(cook)
+                if os.path.exists(cook):
+                    try:
+                        os.remove(cook)
+                    except Exception:
+                        pass
                 return file_name
             elif "youtu" in m3u8url:
                 self.url = m3u8url

@@ -1,24 +1,44 @@
-FROM python:3.9.7-slim-buster
-WORKDIR .
+FROM python:3.10-slim-bullseye
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Install system dependencies & build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    wget \
+    ffmpeg \
+    aria2 \
+    mediainfo \
+    pv \
+    jq \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build and install Bento4 (provides mp4decrypt)
+RUN git clone https://github.com/axiomatic-systems/Bento4.git /tmp/Bento4 && \
+    cd /tmp/Bento4 && \
+    mkdir cmakebuild && \
+    cd cmakebuild && \
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    make -j$(nproc) && \
+    make install && \
+    rm -rf /tmp/Bento4
+
+# Install Python requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -U pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy bot source code
 COPY . .
 
-RUN apt-get update
-RUN apt-get update -y
-RUN apt-get install -y build-essential
-RUN apt -y install curl
-RUN apt-get -y install git
-RUN git clone https://github.com/axiomatic-systems/Bento4.git && \
-cd Bento4 &&\
-apt-get -y install cmake && \
-mkdir cmakebuild && \ 
-cd cmakebuild/ && \
-cmake -DCMAKE_BUILD_TYPE=Release .. &&\
-make &&\ 
-make install
-RUN apt-get install -y aria2
-RUN apt -qq update && apt -qq install -y git wget pv jq python3-dev ffmpeg mediainfo
-RUN apt install ffmpeg
-RUN pip3 install -r requirements.txt
-CMD ["sh", "start.sh"]
+# Ensure start.sh has execute permissions
+RUN chmod +x start.sh
 
-#!git clone https://github.com/axiomatic-systems/Bento4.git && cd Bento4 && apt-get -y install cmake && mkdir cmakebuild && cd cmakebuild/ && cmake -DCMAKE_BUILD_TYPE=Release .. && make && make install
+CMD ["python3", "main.py"]

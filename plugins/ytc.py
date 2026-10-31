@@ -1,21 +1,16 @@
 from pyrogram import filters, Client as ace
-from main import LOGGER as LOGS, prefixes
+from main import LOGGER as LOGS, prefixes, AUTH_FILTER, Config
 from pyrogram.types import Message
-from main import Config
 import os
-import subprocess
-import tgcrypto
 import shutil
-import sys
 from handlers.uploader import Upload_to_Tg
-from handlers.tg import TgClient
 import requests
 import wget
 import img2pdf
 
+
 @ace.on_message(
-    (filters.chat(Config.GROUPS) | filters.chat(Config.AUTH_USERS)) &
-    filters.incoming & filters.command("ytc", prefixes=prefixes)
+    AUTH_FILTER & filters.incoming & filters.command("ytc", prefixes=prefixes)
 )
 async def drm(bot: ace, m: Message):
     path = f"{Config.DOWNLOAD_LOCATION}/{m.chat.id}"
@@ -23,56 +18,78 @@ async def drm(bot: ace, m: Message):
     os.makedirs(path, exist_ok=True)
     os.makedirs(tPath, exist_ok=True)
 
-    pages_msg = await bot.ask(m.chat.id, "Send Pages Range Eg: '1:100'\nBook Name\nBookId")
-    pages, Book_Name, bid = str(pages_msg.text).split("\n")
+    pages_msg = await bot.ask(m.chat.id, "Send in separate lines:\n\nPages Range (e.g. 1:100)\nBook Name\nBookId")
+    if not pages_msg or not pages_msg.text:
+        await m.reply_text("No input received.")
+        return
+
+    parts = [p.strip() for p in str(pages_msg.text).strip().split("\n") if p.strip()]
+    if len(parts) < 3:
+        await m.reply_text("Invalid format. Please send:\nPages Range (e.g. 1:100)\nBook Name\nBookId")
+        return
+
+    pages, Book_Name, bid = parts[0], parts[1], parts[2]
 
     url = "http://yctpublication.com/master/api/MasterController/getPdfPage?book_id={bid}&page_no={pag}&user_id=14593&token=eyJhbGciOiJSUzI1NiIsImtpZCI6IjVkZjFmOTQ1ZmY5MDZhZWFlZmE5M2MyNzY5OGRiNDA2ZDYwNmIwZTgiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJhenAiOiIyMjkwMDE2MzYyNTQtZWZjcDlqYm4wMzJzbmpmc"
     page = pages.split(":")
-    page_1 = int(page[0])#1
-    last_page = int(page[1])+1 # Total Page se Ek Jayda Hi rakhna hai
+    if len(page) < 2:
+        await m.reply_text("Invalid page range format. Example format: 1:100")
+        return
 
-    def download_image(image_link, file_name):
-        k = requests.get(url=image_link)
-        print(k.status_code)
-        with open(f"{tPath}/{file_name}.jpg", "wb") as f:
-            f.write(k.content)
-        return f"{tPath}/{file_name}.jpg"
+    try:
+        page_1 = int(page[0])
+        last_page = int(page[1]) + 1
+    except ValueError:
+        await m.reply_text("Page numbers must be integers.")
+        return
 
     def down(image_link, file_name):
-        wget.download(image_link, f"{tPath}/{file_name}.jpg")
-        return f"{tPath}/{file_name}.jpg"
-
+        dest = f"{tPath}/{file_name}.jpg"
+        wget.download(image_link, dest)
+        return dest
 
     def downloadPdf(title, imagelist):
-        with open(f"{path}/{title}.pdf", "wb") as f:
-            f.write(img2pdf.convert([i for i in imagelist]))
-        PDF = f"{path}/{title}.pdf"
-        return PDF
+        pdf_path = f"{path}/{title}.pdf"
+        with open(pdf_path, "wb") as f:
+            f.write(img2pdf.convert(imagelist))
+        return pdf_path
 
-    Show =  await bot.send_message(
+    Show = await bot.send_message(
         m.chat.id,
-        "Downloading"
+        "Downloading Pages..."
     )
     IMG_LIST = []
 
     for i in range(page_1, last_page):
-        # print(url.format(i))
         try:
             print(f"Downloading Page - {str(i).zfill(3)}")
             name = f"{str(i).zfill(3)}. page_no_{str(i)}"
-            y = down(image_link=url.format(pag = i, bid= bid), file_name=name)
-            IMG_LIST.append(y)
+            y = down(image_link=url.format(pag=i, bid=bid), file_name=name)
+            if os.path.exists(y):
+                IMG_LIST.append(y)
         except Exception as e:
-            await m.reply_text(str(e))
+            LOGS.warning(f"Failed to download page {i}: {e}")
             continue
+
+    if not IMG_LIST:
+        await m.reply_text("Failed to download any pages for this book.")
+        if os.path.exists(tPath):
+            shutil.rmtree(tPath, ignore_errors=True)
+        return
+
+    PDF = None
     try:
         PDF = downloadPdf(title=Book_Name, imagelist=IMG_LIST)
     except Exception as e1:
-        await m.reply_text(str(e1))
-    Thumb = "hb"
-    UL = Upload_to_Tg(bot=bot, m=m, file_path=PDF, name=Book_Name,
-                        Thumb=Thumb, path=path, show_msg=Show, caption=Book_Name)
-    await UL.upload_doc()
-    print("Done")
-    shutil.rmtree(tPath)
-    
+        await m.reply_text(f"PDF creation failed: {e1}")
+
+    if PDF and os.path.exists(PDF):
+        UL = Upload_to_Tg(bot=bot, m=m, file_path=PDF, name=Book_Name,
+                          Thumb="no", path=path, show_msg=Show, caption=Book_Name)
+        await UL.upload_doc()
+        print("Done")
+
+    if os.path.exists(tPath):
+        shutil.rmtree(tPath, ignore_errors=True)
+    if os.path.exists(path):
+        shutil.rmtree(path, ignore_errors=True)

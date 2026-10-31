@@ -4,12 +4,12 @@ requests
 pyromod
 aiohttp
 aiofiles
-asyncio
 humanize
 wget
 yt-dlp
 hachoir
-bs4
+beautifulsoup4
 httpx[http2]
 img2pdf
 tglogging
+python-dotenv
