@@ -24,21 +24,23 @@ class get_link_atributes:
     @staticmethod
     def get_wxh(ytdlp):
         try:
-            output = getoutput(f"{ytdlp} -e --get-filename -R 25")
-            lines = str(output).split("\n")
-            if len(lines) > 1:
-                widthXheight = lines[1].strip()
-            else:
-                widthXheight = lines[0].strip() if lines else ".N.A"
-            LOGS.info(widthXheight)
-            return widthXheight
+            output = getoutput(f"{ytdlp} -e --get-filename -R 5 --socket-timeout 5")
+            lines = [l.strip() for l in str(output).split("\n") if l.strip()]
+            for line in lines:
+                if not any(err in line for err in ["ERROR", "HTTP Error", "[generic]", "WARNING", "Unable to", "404", "403"]):
+                    if "x" in line or "p" in line or line.isdigit():
+                        return f"[{line}]"
+            return ""
         except Exception as e1:
-            LOGS.info(str(e1))
-            widthXheight = ".N.A"
-            return widthXheight
+            LOGS.warning(f"get_wxh warning: {e1}")
+            return ""
 
     @staticmethod
     def get_height_width(link: str, Q: str):
+        link = link.strip()
+        if link.endswith(".pdf") or ".pdf" in link or "drive" in link:
+            return ""
+
         url = get_link_atributes().input_url(link=link, Q=Q)
         YTF = f"bv[height<=?{Q}]+ba/[height<=?{Q}]+ba/[height>=?{Q}]+ba/[height<=?{Q}]/[height>=?{Q}]/b"
         if link.endswith("ankul60"):
@@ -66,6 +68,7 @@ class get_link_atributes:
 
     @staticmethod
     def input_url(link: str, Q: str):
+        link = link.strip()
         if link.startswith("https://videos.classplusapp.com/"):
             if link.split("?")[-1].startswith("auth_key="):
                 url = link
@@ -109,7 +112,7 @@ class get_link_atributes:
 
 class Download_Methods:
     def __init__(self, name: str, url: str, path, Token: str, Quality: str) -> None:
-        self.url = url
+        self.url = url.strip()
         self.name = name
         self.Q = Quality
         self.path = path
@@ -150,22 +153,39 @@ class Download_Methods:
             'referer': 'https://store.adda247.com/build/pdf.worker.js',
             'accept-language': 'en-US,en;q=0.9',
         }
-        response = requests.get(
-            f'{self.url}', cookies=cookies, headers=headers)
-
-        out_file = f'{self.temp_dir}.pdf'
-        with open(out_file, 'wb') as f:
-            f.write(response.content)
-        return out_file
+        try:
+            response = requests.get(
+                f'{self.url}', cookies=cookies, headers=headers, timeout=30)
+            if response.status_code == 200:
+                out_file = f'{self.temp_dir}.pdf'
+                with open(out_file, 'wb') as f:
+                    f.write(response.content)
+                return out_file
+        except Exception as e:
+            LOGS.error(f"addapdf error: {e}")
+        return None
 
     async def aio(self):
         k = f"{self.temp_dir}.pdf"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(self.url) as resp:
-                if resp.status == 200:
-                    async with aiofiles.open(k, mode='wb') as f:
-                        await f.write(await resp.read())
-        return k
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "*/*"
+        }
+        try:
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.get(self.url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    if resp.status == 200:
+                        async with aiofiles.open(k, mode='wb') as f:
+                            await f.write(await resp.read())
+                        if os.path.isfile(k):
+                            return k
+                    else:
+                        LOGS.error(f"aio download failed (HTTP {resp.status}) for URL: {self.url}")
+                        return None
+        except Exception as e:
+            LOGS.error(f"aio download exception: {e}")
+            return None
+        return None
 
     def cwpdf(self):
         headers = {
@@ -173,12 +193,16 @@ class Download_Methods:
             'Host': 'elearn.crwilladmin.com',
             'Connection': 'Keep-Alive',
         }
-        r_pdf = requests.get(self.url, headers=headers)
-        out_file = f'{self.temp_dir}.pdf'
-        with open(out_file, 'wb') as f:
-            f.write(r_pdf.content)
-        if os.path.isfile(out_file):
-            return out_file
+        try:
+            r_pdf = requests.get(self.url, headers=headers, timeout=30)
+            if r_pdf.status_code == 200:
+                out_file = f'{self.temp_dir}.pdf'
+                with open(out_file, 'wb') as f:
+                    f.write(r_pdf.content)
+                if os.path.isfile(out_file):
+                    return out_file
+        except Exception as e:
+            LOGS.error(f"cwpdf error: {e}")
         return None
 
     def visionpdf(self):
@@ -192,18 +216,22 @@ class Download_Methods:
             'Upgrade-Insecure-Requests': '1',
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36',
         }
-        response = requests.get(self.url, cookies=cookies,
-                                headers=headers, verify=False)
-        out_file = f"{self.temp_dir}.pdf"
-        with open(out_file, "wb") as f:
-            f.write(response.content)
-        if os.path.isfile(out_file):
-            return out_file
+        try:
+            response = requests.get(self.url, cookies=cookies,
+                                    headers=headers, verify=False, timeout=30)
+            if response.status_code == 200:
+                out_file = f"{self.temp_dir}.pdf"
+                with open(out_file, "wb") as f:
+                    f.write(response.content)
+                if os.path.isfile(out_file):
+                    return out_file
+        except Exception as e:
+            LOGS.error(f"visionpdf error: {e}")
         return None
 
     async def Guidely(self):
         try:
-            res = requests.get(self.url).json()
+            res = requests.get(self.url, timeout=15).json()
             z = res['item']['data']['key']
             mpd = res['item']['data']['file']
         except Exception as e:
@@ -249,7 +277,7 @@ class Download_Methods:
 
     def get_drive_link_type(self):
         try:
-            resp = requests.get(self.url, stream=True)
+            resp = requests.get(self.url, stream=True, timeout=10)
             c_type = resp.headers.get('Content-Type', '').lower()
             return c_type
         except Exception as e2:
@@ -257,13 +285,17 @@ class Download_Methods:
             return ""
 
     def dot_ws_link(self):
-        response = requests.get(self.url, stream=True)
-        LOGS.info(response.status_code)
-        out_file = f"{self.temp_dir}.html"
-        with open(out_file, "wb") as f:
-            f.write(response.content)
-        if os.path.isfile(out_file):
-            return out_file
+        try:
+            response = requests.get(self.url, stream=True, timeout=20)
+            LOGS.info(response.status_code)
+            if response.status_code == 200:
+                out_file = f"{self.temp_dir}.html"
+                with open(out_file, "wb") as f:
+                    f.write(response.content)
+                if os.path.isfile(out_file):
+                    return out_file
+        except Exception as e:
+            LOGS.error(f"dot_ws_link error: {e}")
         return None
 
 
@@ -275,12 +307,13 @@ class download_handler(Download_Methods):
         except Exception as e_:
             LOGS.info(str(e_))
         file_path = f"{self.temp_dir}.mp4"
-        return file_path
+        return file_path if os.path.isfile(file_path) else None
 
     def recursive(self, cmd):
         LOGS.info(cmd)
         global cc
         if cc >= 5:
+            cc = 0
             return None
         dl = subprocess.run(cmd, shell=True)
         if dl.returncode != 0:
@@ -288,13 +321,13 @@ class download_handler(Download_Methods):
             return download_handler.recursive(self, cmd=cmd)
         cc = 0
         file_path = f"{self.temp_dir}.mp4"
-        LOGS.info(str(file_path))
-        return file_path
+        return file_path if os.path.isfile(file_path) else None
 
     async def recursive_asyno(self, cmd):
         LOGS.info(cmd)
         global cc
         if cc >= 5:
+            cc = 0
             return None
         process = await asyncio.create_subprocess_shell(
             cmd=cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -306,48 +339,38 @@ class download_handler(Download_Methods):
             return await download_handler.recursive_asyno(self, cmd=cmd)
         cc = 0
         file_path = f"{self.temp_dir}.mp4"
-        LOGS.info(str(file_path))
-        return file_path
+        return file_path if os.path.isfile(file_path) else None
 
     async def start_download(self):
-        YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
-        YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
-        CMD = f"{YTDLP} -R 25 --fragment-retries 25 --external-downloader aria2c --downloader-args 'aria2c: -x 16 -j 32'"
-
+        # Handle PDFs first before any yt-dlp invocation
         if self.url.startswith('https://elearn.crwilladmin.com/') and self.url.endswith('.pdf'):
-            file_name = download_handler.cwpdf(self)
-            return file_name
+            return download_handler.cwpdf(self)
 
         if self.url.endswith(".pdf") or ".pdf" in self.url or self.url.startswith(EXTRA_LINKS['EDU_PDF']):
-            file_name = await download_handler.aio(self)
-            return file_name
+            return await download_handler.aio(self)
 
         if self.url.startswith("https://store.adda247.com/"):
-            file_name = download_handler.addapdf(self)
-            return file_name
+            return download_handler.addapdf(self)
+
         if self.url.startswith(EXTRA_LINKS['VISION_PDF']):
-            file_name = download_handler.visionpdf(self)
-            return file_name
+            return download_handler.visionpdf(self)
 
         if self.url.startswith(EXTRA_LINKS['GUIDELY_LINK']):
-            file_name = await download_handler.Guidely(self)
-            return file_name
+            return await download_handler.Guidely(self)
 
         if self.url.startswith("https://videos.sproutvideo.com/"):
             file = ParseLink.olive(self.Q, self.url, self.path)
-            file_name = await download_handler.m3u82mp4(self, file)
-            return file_name
+            return await download_handler.m3u82mp4(self, file)
+
         if "drive" in self.url:
             c_type = download_handler.get_drive_link_type(self)
-            if c_type and "pdf" in c_type:
-                file_name = await download_handler.aio(self)
-                return file_name
-            elif c_type and "video" in c_type:
-                file_name = await download_handler.recursive_asyno(self, cmd=CMD)
-                return file_name
+            if c_type and "video" in c_type:
+                YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
+                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
+                CMD = f"{YTDLP} -R 5 --fragment-retries 5"
+                return await download_handler.recursive_asyno(self, cmd=CMD)
             else:
-                file_name = await download_handler.aio(self)
-                return file_name
+                return await download_handler.aio(self)
 
         if self.url.endswith("ankul60"):
             m3u8url = ParseLink.topranker_link(self.url)
@@ -355,8 +378,9 @@ class download_handler(Download_Methods):
                 rout = ParseLink.rout(url=self.url, m3u8=m3u8url)
                 os.system(f'curl "{rout}" -c "cooks.txt"')
                 cook = "cooks.txt"
+                YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
                 YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{m3u8url}" --cookies "{cook}" --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
-                CMD = f"{YTDLP} -R 25 --fragment-retries 25 --external-downloader aria2c --downloader-args 'aria2c: -x 16 -j 32'"
+                CMD = f"{YTDLP} -R 5 --fragment-retries 5"
                 file_name = await download_handler.recursive_asyno(self, cmd=CMD)
                 if os.path.exists(cook):
                     try:
@@ -366,12 +390,16 @@ class download_handler(Download_Methods):
                 return file_name
             elif "youtu" in m3u8url:
                 self.url = m3u8url
-                file_name = await download_handler.recursive_asyno(self, cmd=CMD)
-                return file_name
-        if self.url.endswith(".ws"):
-            file_name = download_handler.dot_ws_link(self)
-            return file_name
+                YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
+                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
+                CMD = f"{YTDLP} -R 5 --fragment-retries 5"
+                return await download_handler.recursive_asyno(self, cmd=CMD)
 
-        else:
-            file_name = download_handler.recursive(self, cmd=CMD)
-            return file_name
+        if self.url.endswith(".ws"):
+            return download_handler.dot_ws_link(self)
+
+        # Standard video download via yt-dlp
+        YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
+        YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
+        CMD = f"{YTDLP} -R 5 --fragment-retries 5 --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'"
+        return download_handler.recursive(self, cmd=CMD)

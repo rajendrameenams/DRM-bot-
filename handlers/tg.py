@@ -21,7 +21,7 @@ class TgHandler:
                     text=f"<b>Error:</b> `{error}`"
                 )
             except Exception as e:
-                LOGS.warning(f"Failed to send error to LOG_CH: {e}")
+                LOGS.warning(f"Could not send error log to LOG_CH ({Config.LOG_CH}): {e}")
     
     async def linkMsg2(self, List):
         a = ""
@@ -60,13 +60,21 @@ class TgHandler:
             with open(x, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
             content = content.split("\n")
-            name_links = [i.split(":", 1) for i in content if i.strip() != '' and ":" in i]
+            name_links = []
+            for line in content:
+                line = line.strip()
+                if line and ":" in line:
+                    parts = line.split(":", 1)
+                    title = parts[0].strip()
+                    url = parts[1].strip()
+                    if url.startswith("http"):
+                        name_links.append([title, url])
             if os.path.exists(x):
                 os.remove(x)
-            print(len(name_links))
+            print(f"Total valid links extracted: {len(name_links)}")
             return name_links
         except Exception as e:
-            LOGS.error(e)
+            LOGS.error(f"Error reading txt file: {e}")
             await self.m.reply_text("**Invalid file Input.**")
             if os.path.exists(x):
                 os.remove(x)
@@ -75,12 +83,17 @@ class TgHandler:
     @staticmethod
     def parse_name(rawName):
         name = (
-            str(rawName).replace("/", "_")
+            str(rawName)
+            .replace("/", "_")
+            .replace("\\", "_")
             .replace("|", "_")
             .replace(":", "-")
             .replace("*", "")
+            .replace("?", "")
+            .replace("<", "")
+            .replace(">", "")
             .replace("#", "")
-            .replace("\t", "")
+            .replace("\t", " ")
             .replace(";", "")
             .replace("'", "")
             .replace('"', '')
@@ -94,8 +107,8 @@ class TgHandler:
 
     @staticmethod
     def short_name(name: str):
-        if len(name) > 100:
-            res_name = name[:70]
+        if len(name) > 80:
+            res_name = name[:75]
         else:
             res_name = name
         return res_name
