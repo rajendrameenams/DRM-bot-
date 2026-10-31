@@ -3,10 +3,20 @@ version: '3.8'
 services:
   drm-bot:
     build: .
-    container_name: telegram_drm_bot
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN:-}
+      - API_ID=${API_ID:-}
+      - API_HASH=${API_HASH:-}
+      - AUTH_USERS=${AUTH_USERS:-}
+      - GROUPS=${GROUPS:-}
+      - LOG_CH=${LOG_CH:-}
+      - DOWNLOAD_LOCATION=${DOWNLOAD_LOCATION:-./DOWNLOADS}
+      - SESSIONS=${SESSIONS:-./SESSIONS}
+      - CPTOKEN=${CPTOKEN:-}
+      - SPROUT_URL=${SPROUT_URL:-}
+      - ADDA_TOKEN=${ADDA_TOKEN:-}
+      - THUMB_URL=${THUMB_URL:-}
     volumes:
       - ./DOWNLOADS:/app/DOWNLOADS
       - ./SESSIONS:/app/SESSIONS
@@ -15,4 +25,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-

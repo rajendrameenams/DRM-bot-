@@ -1,4 +1,4 @@
-FROM python:3.10-slim-bullseye
+FROM python:3.10-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
@@ -12,16 +12,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     wget \
+    ca-certificates \
     ffmpeg \
     aria2 \
     mediainfo \
     pv \
     jq \
-    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Build and install Bento4 (provides mp4decrypt)
-RUN git clone https://github.com/axiomatic-systems/Bento4.git /tmp/Bento4 && \
+RUN git clone --depth 1 https://github.com/axiomatic-systems/Bento4.git /tmp/Bento4 && \
     cd /tmp/Bento4 && \
     mkdir cmakebuild && \
     cd cmakebuild && \
