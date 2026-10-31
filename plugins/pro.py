@@ -48,7 +48,6 @@ async def Pro(bot: AFK, m: Message):
         Thumb = await BOT.thumb()
     except Exception as e:
         LOGS.error(f"User input error: {e}")
-        await TgHandler.error_message(bot=bot, m=m, error=f"from User Input - {e}")
         await m.reply_text("Wrong Input")
         return
 
@@ -61,19 +60,15 @@ async def Pro(bot: AFK, m: Message):
             link = nameLinks[i][1].strip()
             name = BOT.parse_name(raw_title)
 
-            # Only fetch resolution for videos, not for PDFs or documents
-            is_pdf = link.endswith(".pdf") or ".pdf" in link or "drive" in link
-            if is_pdf:
-                wxh = ""
-            else:
-                wxh = get_link_atributes().get_height_width(link=link, Q=quality)
-                if wxh:
-                    wxh = f" {wxh}"
+            # Resolution tag from user selection
+            wxh = get_link_atributes().get_height_width(link=link, Q=quality)
+            if wxh:
+                wxh = f" {wxh}"
 
             caption_name = f"**{str(i+1).zfill(3)}.** - {name}{wxh}"
             clean_short_name = BOT.short_name(name)
             file_name = f"{str(i+1).zfill(3)}. - {clean_short_name}{wxh}".strip()
-            print(f"Processing: {caption_name} -> {link}")
+            print(f"Processing ({i+1}/{len(nameLinks)}): {caption_name} -> {link}")
 
             Show = await bot.send_message(
                 chat_id=m.chat.id,
@@ -103,24 +98,12 @@ async def Pro(bot: AFK, m: Message):
                     await UL.upload_doc()
             else:
                 error_list.append(f"{caption_name} (Link 404 or Download Failed)\n")
+                LOGS.warning(f"Download failed for {caption_name}: {url}")
                 if Show:
                     try:
                         await Show.edit(f"⚠️ **Failed / Expired Link (HTTP 404):**\n`{file_name}`")
                     except Exception:
                         pass
-                if Config.LOG_CH:
-                    try:
-                        await bot.send_message(
-                            chat_id=Config.LOG_CH,
-                            text=Msg.ERROR_MSG.format(
-                                error="File download returned empty (Server returned 404 or Link Expired)",
-                                no_of_files=len(error_list),
-                                file_name=caption_name,
-                                file_link=url,
-                            )
-                        )
-                    except Exception as err:
-                        LOGS.warning(f"Could not send to LOG_CH: {err}")
         except Exception as r:
             LOGS.error(f"Download processing error: {r}")
             error_list.append(f"{caption_name} ({r})\n")
@@ -129,19 +112,6 @@ async def Pro(bot: AFK, m: Message):
                     await Show.edit(f"⚠️ **Error:** `{r}`")
                 except Exception:
                     pass
-            if Config.LOG_CH:
-                try:
-                    await bot.send_message(
-                        chat_id=Config.LOG_CH,
-                        text=Msg.ERROR_MSG.format(
-                            error=str(r),
-                            no_of_files=len(error_list),
-                            file_name=caption_name,
-                            file_link=url,
-                        )
-                    )
-                except Exception as err:
-                    LOGS.warning(f"Could not send to LOG_CH: {err}")
             continue
 
     if os.path.exists(sPath):

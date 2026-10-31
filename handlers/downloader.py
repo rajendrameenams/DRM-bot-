@@ -23,48 +23,16 @@ EXTRA_LINKS = {
 class get_link_atributes:
     @staticmethod
     def get_wxh(ytdlp):
-        try:
-            output = getoutput(f"{ytdlp} -e --get-filename -R 5 --socket-timeout 5")
-            lines = [l.strip() for l in str(output).split("\n") if l.strip()]
-            for line in lines:
-                if not any(err in line for err in ["ERROR", "HTTP Error", "[generic]", "WARNING", "Unable to", "404", "403"]):
-                    if "x" in line or "p" in line or line.isdigit():
-                        return f"[{line}]"
-            return ""
-        except Exception as e1:
-            LOGS.warning(f"get_wxh warning: {e1}")
-            return ""
+        return ""
 
     @staticmethod
     def get_height_width(link: str, Q: str):
         link = link.strip()
         if link.endswith(".pdf") or ".pdf" in link or "drive" in link:
             return ""
-
-        url = get_link_atributes().input_url(link=link, Q=Q)
-        YTF = f"bv[height<=?{Q}]+ba/[height<=?{Q}]+ba/[height>=?{Q}]+ba/[height<=?{Q}]/[height>=?{Q}]/b"
-        if link.endswith("ankul60"):
-            url = ParseLink.topranker_link(link)
-            if "m3u8" in url:
-                rout = ParseLink.rout(url=link, m3u8=url)
-                os.system(f'curl "{rout}" -c "cooks.txt"')
-                cook = "cooks.txt"
-                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{url}" --cookies "{cook}" -o "%(resolution)s"'
-                wXh = get_link_atributes().get_wxh(YTDLP)
-                if os.path.exists(cook):
-                    try:
-                        os.remove(cook)
-                    except Exception:
-                        pass
-                return wXh
-            elif "youtu" in url:
-                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{url}" --progress -o "%(resolution)s"'
-                wXh = get_link_atributes().get_wxh(YTDLP)
-                return wXh
-        else:
-            YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{url}" --progress --remux-video mp4 -o "%(resolution)s"'
-            wXh = get_link_atributes().get_wxh(YTDLP)
-            return wXh
+        if Q and str(Q).isdigit():
+            return f"[{Q}p]"
+        return ""
 
     @staticmethod
     def input_url(link: str, Q: str):
@@ -312,7 +280,7 @@ class download_handler(Download_Methods):
     def recursive(self, cmd):
         LOGS.info(cmd)
         global cc
-        if cc >= 5:
+        if cc >= 3:
             cc = 0
             return None
         dl = subprocess.run(cmd, shell=True)
@@ -326,13 +294,12 @@ class download_handler(Download_Methods):
     async def recursive_asyno(self, cmd):
         LOGS.info(cmd)
         global cc
-        if cc >= 5:
+        if cc >= 3:
             cc = 0
             return None
         process = await asyncio.create_subprocess_shell(
             cmd=cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        print("Started:", cmd, "(pid = " + str(process.pid) + ")", flush=True)
         stdout, stderr = await process.communicate()
         if process.returncode != 0:
             cc += 1
@@ -366,8 +333,8 @@ class download_handler(Download_Methods):
             c_type = download_handler.get_drive_link_type(self)
             if c_type and "video" in c_type:
                 YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
-                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
-                CMD = f"{YTDLP} -R 5 --fragment-retries 5"
+                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warnings "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
+                CMD = f"{YTDLP} -R 3 --fragment-retries 3"
                 return await download_handler.recursive_asyno(self, cmd=CMD)
             else:
                 return await download_handler.aio(self)
@@ -379,8 +346,8 @@ class download_handler(Download_Methods):
                 os.system(f'curl "{rout}" -c "cooks.txt"')
                 cook = "cooks.txt"
                 YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
-                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{m3u8url}" --cookies "{cook}" --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
-                CMD = f"{YTDLP} -R 5 --fragment-retries 5"
+                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warnings "{m3u8url}" --cookies "{cook}" --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
+                CMD = f"{YTDLP} -R 3 --fragment-retries 3"
                 file_name = await download_handler.recursive_asyno(self, cmd=CMD)
                 if os.path.exists(cook):
                     try:
@@ -391,8 +358,8 @@ class download_handler(Download_Methods):
             elif "youtu" in m3u8url:
                 self.url = m3u8url
                 YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
-                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
-                CMD = f"{YTDLP} -R 5 --fragment-retries 5"
+                YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warnings "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
+                CMD = f"{YTDLP} -R 3 --fragment-retries 3"
                 return await download_handler.recursive_asyno(self, cmd=CMD)
 
         if self.url.endswith(".ws"):
@@ -400,6 +367,6 @@ class download_handler(Download_Methods):
 
         # Standard video download via yt-dlp
         YTF = f"bv[height<=?{self.Q}]+ba/[height<=?{self.Q}]+ba/[height>=?{self.Q}]+ba/[height<=?{self.Q}]/[height>=?{self.Q}]/b"
-        YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warning "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
-        CMD = f"{YTDLP} -R 5 --fragment-retries 5 --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'"
+        YTDLP = f'yt-dlp -i --no-check-certificate -f "{YTF}" --no-warnings "{self.url}" --merge-output-format mp4 --remux-video mp4 -o "{self.temp_dir}.%(ext)s"'
+        CMD = f"{YTDLP} -R 3 --fragment-retries 3 --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'"
         return download_handler.recursive(self, cmd=CMD)
